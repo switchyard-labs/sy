@@ -2,10 +2,12 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
@@ -13,6 +15,39 @@ func testServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	s := httptest.NewServer(handler)
 	t.Cleanup(s.Close)
 	return s
+}
+
+func TestRateLimitContractAndCancellation(t *testing.T) {
+	calls := 0
+	s := testServer(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Header().Set("Retry-After", "20")
+		w.WriteHeader(429)
+		w.Write([]byte(`{"error":"upstream_rate_limited"}`))
+	})
+	c := New(s.URL, "tok")
+	err := c.Do(t.Context(), "POST", "/mutation", nil)
+	var he *HTTPError
+	if !errors.As(err, &he) || he.Code != "upstream_rate_limited" || he.RetryAfter != "20" || !errors.Is(err, ErrUnavailable) || calls != 1 {
+		t.Fatalf("mutation throttle contract: %v calls=%d", err, calls)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err = c.Do(ctx, "GET", "/read", nil)
+	if !errors.Is(err, context.DeadlineExceeded) || time.Since(started) > time.Second {
+		t.Fatalf("retry ignored cancellation: %v", err)
+	}
+}
+
+func TestAuthDoesNotFollowRedirect(t *testing.T) {
+	targetCalls := 0
+	target := testServer(t, func(w http.ResponseWriter, r *http.Request) { targetCalls++; w.Write([]byte(`{}`)) })
+	source := testServer(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, 302) })
+	err := New(source.URL, "private-session").Do(t.Context(), "GET", "/read", nil)
+	if err == nil || targetCalls != 0 {
+		t.Fatal("redirect followed")
+	}
 }
 
 func TestErrorMapping(t *testing.T) {

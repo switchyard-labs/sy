@@ -34,8 +34,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 
 func TestNormalizeHost(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{"http://45.79.189.46/", "45.79.189.46"},
-		{"https://demo.example.com", "demo.example.com"},
+		{"http://45.79.189.46/", "http://45.79.189.46"},
+		{"https://demo.example.com", "https://demo.example.com"},
 		{"demo.example.com", "demo.example.com"},
 	} {
 		if got := NormalizeHost(c.in); got != c.want {

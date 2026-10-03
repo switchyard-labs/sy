@@ -42,7 +42,7 @@ func ExitCodeFor(err error) int {
 				return ExitConflictStale
 			}
 			return ExitConflictStale
-		case he.Status >= 500:
+		case he.Status == 429 || he.Status >= 500:
 			return ExitUnavailable
 		}
 		return ExitRemoteFailure

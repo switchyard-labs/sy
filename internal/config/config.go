@@ -17,9 +17,9 @@ type Host struct {
 }
 
 type Config struct {
-	Hosts       map[string]Host `json:"hosts"`
-	ActiveHost  string          `json:"active_host"`
-	path        string
+	Hosts      map[string]Host `json:"hosts"`
+	ActiveHost string          `json:"active_host"`
+	path       string
 }
 
 // Load reads the config from the platform config dir, returning an empty
@@ -85,7 +85,23 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(c.path, b, 0600)
+	f, err := os.CreateTemp(filepath.Dir(c.path), ".config-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(f.Name())
+	if _, err = f.Write(b); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(f.Name(), c.path)
 }
 
 // Host returns the active host config, or nil.
@@ -122,11 +138,9 @@ func (c *Config) HostList() []string {
 	return keys
 }
 
-// NormalizeHost trims a scheme/port to a stable host key.
+// NormalizeHost preserves the transport scheme so HTTPS is never downgraded.
 func NormalizeHost(u string) string {
 	u = strings.TrimSpace(u)
 	u = strings.TrimSuffix(u, "/")
-	u = strings.TrimPrefix(u, "https://")
-	u = strings.TrimPrefix(u, "http://")
 	return u
 }

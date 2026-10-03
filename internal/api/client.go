@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -28,10 +29,11 @@ var (
 )
 
 type HTTPError struct {
-	Status   int    `json:"-"`
-	Code     string `json:"code,omitempty"`
-	Message  string `json:"message,omitempty"`
-	RequestID string `json:"request_id,omitempty"`
+	RetryAfter string `json:"retry_after,omitempty"`
+	Status     int    `json:"-"`
+	Code       string `json:"code,omitempty"`
+	Message    string `json:"message,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
 	// Extra carries structured fields (e.g. current_revision) for stale/conflict.
 	Extra map[string]any `json:"extra,omitempty"`
 }
@@ -39,6 +41,9 @@ type HTTPError struct {
 func (e *HTTPError) Error() string {
 	if e.Message != "" {
 		return e.Message
+	}
+	if e.Code != "" {
+		return e.Code
 	}
 	return fmt.Sprintf("HTTP %d", e.Status)
 }
@@ -57,7 +62,7 @@ func (e *HTTPError) Unwrap() error {
 			return ErrStale
 		}
 		return ErrConflict
-	case e.Status >= 500:
+	case e.Status == 429 || e.Status >= 500:
 		return ErrUnavailable
 	case e.Status >= 400:
 		return ErrInvalid
@@ -79,7 +84,8 @@ func New(baseURL, token string) *Client {
 		Token:     token,
 		UserAgent: "sy/dev",
 		http: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:       30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
 }
@@ -94,9 +100,23 @@ type requestOptions struct {
 
 type RequestOption func(*requestOptions)
 
-func WithBody(v any) RequestOption          { return func(o *requestOptions) { o.Body = v } }
-func WithQuery(k, v string) RequestOption   { return func(o *requestOptions) { if o.Query == nil { o.Query = url.Values{} }; o.Query.Set(k, v) } }
-func WithHeader(k, v string) RequestOption  { return func(o *requestOptions) { if o.Header == nil { o.Header = http.Header{} }; o.Header.Set(k, v) } }
+func WithBody(v any) RequestOption { return func(o *requestOptions) { o.Body = v } }
+func WithQuery(k, v string) RequestOption {
+	return func(o *requestOptions) {
+		if o.Query == nil {
+			o.Query = url.Values{}
+		}
+		o.Query.Set(k, v)
+	}
+}
+func WithHeader(k, v string) RequestOption {
+	return func(o *requestOptions) {
+		if o.Header == nil {
+			o.Header = http.Header{}
+		}
+		o.Header.Set(k, v)
+	}
+}
 
 // maxTransientRetries bounds automatic retries for safe idempotent reads.
 const maxTransientRetries = 2
@@ -115,8 +135,28 @@ func (c *Client) Do(ctx context.Context, method, path string, out any, opts ...R
 		for attempt := 0; attempt <= maxTransientRetries; attempt++ {
 			last = c.doOnce(ctx, method, path, out, opts)
 			var he *HTTPError
-			if errors.As(last, &he) && transientStatus(he.Status) {
-				time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			if errors.As(last, &he) && transientStatus(he.Status) && attempt < maxTransientRetries {
+				delay := time.Duration(attempt+1) * 500 * time.Millisecond
+				if he.RetryAfter != "" {
+					if n, err := strconv.Atoi(he.RetryAfter); err == nil && n >= 0 {
+						delay = time.Duration(n) * time.Second
+					} else if deadline, err := http.ParseTime(he.RetryAfter); err == nil {
+						delay = time.Until(deadline)
+					}
+					if delay < 0 {
+						delay = 0
+					}
+					if delay > 30*time.Second {
+						return last
+					}
+				}
+				timer := time.NewTimer(delay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return ctx.Err()
+				case <-timer.C:
+				}
 				continue
 			}
 			return last
@@ -166,7 +206,13 @@ func (c *Client) doOnce(ctx context.Context, method, path string, out any, opts 
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		he := &HTTPError{Status: resp.StatusCode, Extra: map[string]any{}}
+		he := &HTTPError{Status: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After"), Extra: map[string]any{}}
+		var simple struct {
+			Error string `json:"error"`
+		}
+		if json.Unmarshal(b, &simple) == nil {
+			he.Code = simple.Error
+		}
 		var env struct {
 			Error map[string]any `json:"error"`
 		}

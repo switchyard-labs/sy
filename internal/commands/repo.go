@@ -185,10 +185,17 @@ func newRepoCloneCmd() *cobra.Command {
 			if dir == "" {
 				dir = r.Name
 			}
-			env := []string{gitutil.CredentialHelperOff()}
+			env := []string{gitutil.CredentialHelperOff(), "GIT_CONFIG_NOSYSTEM=1"}
+			credFile := ""
+			cleanup := func() {}
 			if token != "" {
-				// credential via GIT_CONFIG env vars: never in argv, never in .git/config
-				env = append(env, gitutil.ExtraHeader(token))
+				// credential via GIT_CONFIG_GLOBAL temp file: never in argv,
+				// never in .git/config
+				credFile, cleanup, _ = gitutil.CredentialFile(token)
+				defer cleanup()
+				if credFile != "" {
+					env = append(env, "GIT_CONFIG_GLOBAL="+credFile)
+				}
 			} else {
 				st.renderer.Print("note: Switchyard API does not yet expose a scoped git credential; cloning anonymously (may fail). Provide SY_GIT_TOKEN or --token.")
 			}

@@ -1,0 +1,100 @@
+# sy — Switchyard CLI
+
+`sy` is the first-class command-line client for
+[Switchyard](https://github.com/switchyard-labs/switchyard), the agent-native
+Git collaboration platform. It is to Switchyard what `gh` is to GitHub:
+pleasant for humans, deterministic for agents (`--json`), and a durable
+dogfood client for the Switchyard API.
+
+```
+sy
+ ↓
+Switchyard API
+ ↓
+Switchyard control plane (Artifacts · Trestle · workers)
+```
+
+You never need to know Trestle collection ids, Cloudflare account ids, or
+Artifacts namespace internals to use `sy`.
+
+## Install / build
+
+```sh
+go build -o sy ./cmd/sy
+```
+
+## Quick start
+
+```sh
+# log in (prompts for password; never store it in shell history)
+sy auth login --host http://45.79.189.46
+
+# clone a repository (uses ordinary Git; token never lands in .git/config)
+sy repo clone demo-basic
+
+# from inside a Switchyard checkout, run commands without owner/repo
+cd demo-basic
+sy work list
+sy pr list
+
+# what needs you right now?
+sy attention
+
+# deterministic output for agents
+sy work list --json
+sy attention --json
+```
+
+## Commands
+
+```
+CORE
+  auth        Authenticate with a Switchyard host
+  repo        Work with repositories
+  work        Work items (issues/tasks)
+  pr          Pull requests
+  attention   Items requiring human direction
+
+AUTOMATION
+  workflow    Durable engineering workflows
+  agent       Agent roles and executions
+  queue       Integration Queue
+
+OTHER
+  org         Organizations
+  api         Make an authenticated API request (escape hatch)
+  version     Print version
+```
+
+Run `sy <command> --help` for examples. See:
+
+- [docs/auth.md](docs/auth.md) — authentication and host profiles
+- [docs/config.md](docs/config.md) — configuration
+- [docs/json.md](docs/json.md) — the `--json` contract for agents
+- [docs/repository-context.md](docs/repository-context.md) — deriving owner/repo from Git
+- [docs/agent-usage.md](docs/agent-usage.md) — using `sy` from a coding agent
+- [docs/switchyard-api-feedback.md](docs/switchyard-api-feedback.md) — API gaps surfaced by `sy`
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | success |
+| 1 | remote/operation failure |
+| 2 | invalid invocation/input |
+| 3 | authentication/authorization |
+| 4 | conflict/stale state |
+| 5 | infrastructure/unavailable |
+
+`sy` never returns 0 when an API request failed.
+
+## Design notes
+
+- **Credentials**: session tokens are stored in a 0600 config file; Git
+  credentials are supplied via a temporary `GIT_CONFIG_GLOBAL` file (never in
+  argv, never in `.git/config`). See the credential-sanitization tests in
+  `internal/gitutil`.
+- **Output**: every command produces a domain result rendered by a shared
+  renderer (human table / stable JSON). `--json` is a public contract.
+- **Terminal**: color/spinners are TTY-only; `NO_COLOR`, `TERM=dumb`,
+  `--no-color`, and `--json` force deterministic output.

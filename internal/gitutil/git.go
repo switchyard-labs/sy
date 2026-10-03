@@ -24,10 +24,26 @@ func Cmd(ctx context.Context, dir string, envExtras []string, args ...string) (s
 	return stdout.String(), stderr.String(), err
 }
 
-// ExtraHeader returns a git env extra that supplies an Authorization header
-// without putting the token in argv (visible in `ps`).
-func ExtraHeader(token string) string {
-	return "GIT_CONFIG_COUNT=1\x00GIT_CONFIG_KEY_0=http.extraheader\x00GIT_CONFIG_VALUE_0=Authorization: Bearer " + token
+// CredentialFile writes a 0600 git config that supplies an Authorization
+// header via GIT_CONFIG_GLOBAL, keeping the token out of argv (process list)
+// and out of the clone's .git/config. Returns the path and a cleanup func.
+func CredentialFile(token string) (string, func(), error) {
+	f, err := os.CreateTemp("", "sy-git-cred-*.config")
+	if err != nil {
+		return "", nil, err
+	}
+	if err := os.Chmod(f.Name(), 0600); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	if _, err := f.WriteString("[http]\n	extraHeader = Authorization: Bearer " + token + "\n"); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	f.Close()
+	return f.Name(), func() { os.Remove(f.Name()) }, nil
 }
 
 // CredentialHelperOff disables the global credential helper so tokens never
@@ -42,19 +58,21 @@ func CredentialHelperOff() string { return "GIT_TERMINAL_PROMPT=0" }
 func DetectOwnerRepo(remote string) (string, string) {
 	s := strings.TrimSpace(remote)
 	s = strings.TrimSuffix(s, ".git")
-	// scp-style: user@host:path
+	// scp-style: user@host:owner/repo
 	if i := strings.Index(s, ":"); i >= 0 && !strings.Contains(s, "://") {
 		s = s[i+1:]
-	}
-	s = strings.TrimPrefix(s, "https://")
-	s = strings.TrimPrefix(s, "http://")
-	s = strings.TrimPrefix(s, "git@")
-	if i := strings.Index(s, "/"); i >= 0 {
-		rest := s[i+1:]
-		parts := strings.Split(rest, "/")
-		if len(parts) >= 2 {
-			return parts[len(parts)-2], parts[len(parts)-1]
+	} else {
+		// URL-style: scheme://host/owner/repo
+		s = strings.TrimPrefix(s, "https://")
+		s = strings.TrimPrefix(s, "http://")
+		s = strings.TrimPrefix(s, "git@")
+		if i := strings.Index(s, "/"); i >= 0 {
+			s = s[i+1:]
 		}
+	}
+	parts := strings.Split(s, "/")
+	if len(parts) >= 2 {
+		return parts[len(parts)-2], parts[len(parts)-1]
 	}
 	return "", ""
 }

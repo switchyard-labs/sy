@@ -89,7 +89,7 @@ func New() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if cmd.Name() == "help" || cmd.Name() == "completion" || cmd.Name() == "version" {
+			if cmd.Name() == "help" || cmd.Name() == "completion" || cmd.Name() == "version" || cmd.Name() == "login" {
 				return nil
 			}
 			// load config lazily so help/version never read config

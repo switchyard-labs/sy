@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -17,9 +18,43 @@ type AttentionItem struct {
 }
 
 func newAttentionCmd() *cobra.Command {
-	cmd := &cobra.Command{Use: "attention", Short: "Items requiring human direction"}
+	cmd := &cobra.Command{
+		Use:   "attention",
+		Short: "Items requiring human direction",
+		// default: `sy attention` lists what needs you right now
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAttentionList(stateFrom(cmd))
+		},
+	}
 	cmd.AddCommand(newAttentionListCmd(), newAttentionViewCmd())
 	return cmd
+}
+
+func runAttentionList(st *state) error {
+	if st == nil {
+		return fmt.Errorf("not initialized")
+	}
+	var out struct {
+		Count int             `json:"count"`
+		Items []AttentionItem `json:"items"`
+	}
+	if err := st.client.Do(context.Background(), "GET", "/api/attention", &out); err != nil {
+		return err
+	}
+	if st.renderer.JSONMode {
+		return st.renderer.Emit(out)
+	}
+	if out.Count == 0 {
+		st.renderer.Print("nothing needs your attention right now.")
+		return nil
+	}
+	st.renderer.Title(fmt.Sprintf("%d item(s) need your attention:", out.Count))
+	rows := make([][]string, 0, len(out.Items))
+	for _, it := range out.Items {
+		rows = append(rows, []string{it.TargetID, it.Kind, it.Repo, it.Branch, it.Summary, timeAgo(it.CreatedAt)})
+	}
+	st.renderer.Table([]string{"TARGET", "KIND", "REPO", "BRANCH", "SUMMARY", "WHEN"}, rows)
+	return nil
 }
 
 func newAttentionListCmd() *cobra.Command {
@@ -29,28 +64,7 @@ func newAttentionListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Example: "  sy attention\n  sy attention list --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			st := stateFrom(cmd)
-			var out struct {
-				Count int            `json:"count"`
-				Items []AttentionItem `json:"items"`
-			}
-			if err := st.client.Do(cmd.Context(), "GET", "/api/attention", &out); err != nil {
-				return err
-			}
-			if st.renderer.JSONMode {
-				return st.renderer.Emit(out)
-			}
-			if out.Count == 0 {
-				st.renderer.Print("nothing needs your attention right now.")
-				return nil
-			}
-			st.renderer.Title(fmt.Sprintf("%d item(s) need your attention:", out.Count))
-			rows := make([][]string, 0, len(out.Items))
-			for _, it := range out.Items {
-				rows = append(rows, []string{it.TargetID, it.Kind, it.Repo, it.Branch, it.Summary, timeAgo(it.CreatedAt)})
-			}
-			st.renderer.Table([]string{"TARGET", "KIND", "REPO", "BRANCH", "SUMMARY", "WHEN"}, rows)
-			return nil
+			return runAttentionList(stateFrom(cmd))
 		},
 	}
 }
@@ -64,7 +78,7 @@ func newAttentionViewCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
 			var out struct {
-				Count int            `json:"count"`
+				Count int             `json:"count"`
 				Items []AttentionItem `json:"items"`
 			}
 			if err := st.client.Do(cmd.Context(), "GET", "/api/attention", &out); err != nil {
@@ -90,7 +104,7 @@ func newAttentionViewCmd() *cobra.Command {
 				{"Branch", found.Branch},
 				{"What happened", found.Summary},
 			})
-			st.renderer.Print("\nOptions: escalate for a decision packet (sy attention escalate) or resolve via the product UI.")
+			st.renderer.Print("\nOptions: resolve via the product UI, or escalate for a decision packet.")
 			return nil
 		},
 	}

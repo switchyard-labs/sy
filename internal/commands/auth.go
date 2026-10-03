@@ -37,17 +37,28 @@ func newAuthLoginCmd() *cobra.Command {
 			if host == "" {
 				return fmt.Errorf("--host is required (e.g. --host http://45.79.189.46)")
 			}
-			if username == "" && !useFlags {
-				fmt.Fprintf(os.Stdout, "Switchyard host: %s\nUsername: ", host)
-				u, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-				username = strings.TrimSpace(u)
-			}
-			if password == "" && !useFlags {
-				p, err := readPassword("Password: ")
-				if err != nil {
-					return err
+			if useFlags {
+				// --password-stdin: read username then password from stdin
+				r := bufio.NewReader(os.Stdin)
+				if u, _ := r.ReadString('\n'); u != "" {
+					username = strings.TrimSpace(u)
 				}
-				password = p
+				if p, _ := r.ReadString('\n'); p != "" {
+					password = strings.TrimSpace(p)
+				}
+			} else {
+				if username == "" {
+					fmt.Fprintf(os.Stdout, "Switchyard host: %s\nUsername: ", host)
+					u, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+					username = strings.TrimSpace(u)
+				}
+				if password == "" {
+					p, err := readPassword("Password: ")
+					if err != nil {
+						return err
+					}
+					password = p
+				}
 			}
 			if username == "" || password == "" {
 				return fmt.Errorf("username and password are required")
@@ -95,6 +106,9 @@ func newAuthStatusCmd() *cobra.Command {
 			user, err := st.client.Me(cmd.Context())
 			if err != nil {
 				return err
+			}
+			if st.renderer.JSONMode {
+				return st.renderer.Emit(map[string]any{"host": st.host, "user": user, "authenticated": true})
 			}
 			st.renderer.Print(fmt.Sprintf("Host:   %s", st.host))
 			st.renderer.Print(fmt.Sprintf("User:   %s", user))

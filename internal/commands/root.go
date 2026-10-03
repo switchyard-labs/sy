@@ -18,12 +18,12 @@ import (
 
 // Stable exit codes (documented contract for humans and agents).
 const (
-	ExitOK             = 0
-	ExitRemoteFailure  = 1
-	ExitInvalid        = 2
-	ExitAuth           = 3
-	ExitConflictStale  = 4
-	ExitUnavailable    = 5
+	ExitOK            = 0
+	ExitRemoteFailure = 1
+	ExitInvalid       = 2
+	ExitAuth          = 3
+	ExitConflictStale = 4
+	ExitUnavailable   = 5
 )
 
 // ExitCodeFor maps an error to a stable exit code.
@@ -163,17 +163,4 @@ func strOrNil(s string) any {
 func atoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
-}
-
-var version = "dev"
-
-func newVersionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintf(os.Stdout, "sy %s\n", version)
-			return nil
-		},
-	}
 }

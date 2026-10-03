@@ -70,7 +70,7 @@ func newAuthLoginCmd() *cobra.Command {
 			client := api.New(base, "")
 			key := config.NormalizeHost(host)
 			// set User-Agent
-			client.UserAgent = "sy/" + version
+			client.UserAgent = "sy/" + Version
 			token, err := client.Login(cmd.Context(), base, username, password)
 			if err != nil {
 				return err

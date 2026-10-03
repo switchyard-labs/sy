@@ -98,9 +98,35 @@ func WithBody(v any) RequestOption          { return func(o *requestOptions) { o
 func WithQuery(k, v string) RequestOption   { return func(o *requestOptions) { if o.Query == nil { o.Query = url.Values{} }; o.Query.Set(k, v) } }
 func WithHeader(k, v string) RequestOption  { return func(o *requestOptions) { if o.Header == nil { o.Header = http.Header{} }; o.Header.Set(k, v) } }
 
+// maxTransientRetries bounds automatic retries for safe idempotent reads.
+const maxTransientRetries = 2
+
+// transientStatuses are retried for GET/HEAD (never for mutations).
+func transientStatus(s int) bool {
+	return s == 429 || s == 502 || s == 503 || s == 504
+}
+
 // Do performs an authenticated request and decodes a JSON envelope into out.
-// Non-2xx responses become *HTTPError.
+// Non-2xx responses become *HTTPError. GET/HEAD retry transient failures
+// (429/502/503/504) up to maxTransientRetries; mutations are never auto-retried.
 func (c *Client) Do(ctx context.Context, method, path string, out any, opts ...RequestOption) error {
+	if method == http.MethodGet || method == http.MethodHead {
+		var last error
+		for attempt := 0; attempt <= maxTransientRetries; attempt++ {
+			last = c.doOnce(ctx, method, path, out, opts)
+			var he *HTTPError
+			if errors.As(last, &he) && transientStatus(he.Status) {
+				time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+				continue
+			}
+			return last
+		}
+		return last
+	}
+	return c.doOnce(ctx, method, path, out, opts)
+}
+
+func (c *Client) doOnce(ctx context.Context, method, path string, out any, opts []RequestOption) error {
 	ro := &requestOptions{Method: method, Path: path}
 	for _, o := range opts {
 		o(ro)

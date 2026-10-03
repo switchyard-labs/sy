@@ -5,7 +5,7 @@ README, and `docs/` before judging. Treat prior `sy` work as fallible.
 
 ## State
 
-- Current SHA: see `git rev-parse HEAD` (pushed; HEAD == origin/main).
+- Current SHA: see `git rev-parse HEAD`. October 4 review commits are local and unpushed.
 - Remote: `git@github.com:switchyard-labs/sy.git` (`main`).
 - No Switchyard / brochure / Linode / reference-project changes were made by
   this project. `sy` is a client of the Switchyard API only.
@@ -15,6 +15,7 @@ README, and `docs/` before judging. Treat prior `sy` work as fallible.
 ```
 auth        login status logout switch
 repo        list view clone
+actions     list view run cancel rerun logs (--follow)
 work        list view create comment close
 attempt     list view run
 pr          list view checks findings
@@ -51,11 +52,11 @@ version completion( bash zsh fish )
 
 ## Credential-safety model
 
-- `sy repo clone` fetches the remote from the API, then supplies any Git
-  credential via a **temporary `GIT_CONFIG_GLOBAL` file (0600)**: token never in
-  argv and never in `.git/config` (proven by `TestCredentialNotInGitConfig`).
-- Fallback sources `SY_GIT_TOKEN` / `--token` are marked development/advanced;
-  the final UX is a server clone-token endpoint (blocked).
+- `sy repo clone` resolves a registered canonical repository and requests a
+  short-lived read credential from Switchyard. The exact HTTPS remote is validated;
+  Git receives the capability through process environment configuration, never argv,
+  a credential file, or `.git/config`. Credential helpers and redirects are disabled.
+- No Artifacts token supplied by the user is required for normal cloning.
 
 ## Repo-context behavior
 
@@ -75,30 +76,24 @@ version completion( bash zsh fish )
 
 ## Live dogfood result
 
-Integration harness (`scripts/integration.sh`, client-only, `sy-dogfood-*`):
-**10/11 PASS**. The one failure — `repo list` intermittently — is the **live
-Switchyard server being rate-limited upstream by Cloudflare Artifacts** (the
-server maps upstream 429 to misleading 404/502; its own logs confirm). `sy`
-correctly records this rather than teaching the CLI that 404/502 mean
-"rate-limited". Codex should review the server's upstream error mapping.
+October 4 isolated updated Switchyard: **11/11 PASS** using the existing integration
+harness. A real scoped clone, checkout context, Actions list/detail/captured-log follow,
+and direct Attempts listing also passed. This is isolated certification; the updated
+client has not yet been certified against the final deployed Linode binary.
 
 ## Cross-build matrix (verified)
 
 `linux/amd64` · `linux/arm64` · `darwin/amd64` · `darwin/arm64` · `windows/amd64`
 via `scripts/build-release.sh` (ldflags version metadata; `CGO_ENABLED=0`).
 
-## Known server blockers (do NOT "fix" inside `sy`)
+## Remaining gaps
 
-| Blocker | Status | Pointer |
-| --- | --- | --- |
-| Actions/CI API | waiting on Switchyard routes | `docs/switchyard-api-feedback.md` |
-| clone-token endpoint | server gap | `docs/switchyard-api-feedback.md` |
-| durable PAT / device auth | server gap | `docs/switchyard-api-feedback.md` |
-| clean top-level Attempts listing | server gap (work list omits attempts) | `docs/switchyard-api-feedback.md` |
-| Artifacts throttle → misleading 404/502 | SERVER BUG | `docs/switchyard-api-feedback.md` |
-
-Full categorized feedback: `docs/switchyard-api-feedback.md`.
-Server compatibility: `docs/server-compatibility.md`.
+Actions, scoped clone credentials, top-level Attempts and typed upstream 429 errors
+are implemented against the updated Switchyard contracts. PAT/device auth remains
+unavailable. See `docs/codex-review.md` for the independent verdict and practical
+limitations, and Switchyard `docs/plan/sy-api-handoff.md` for server contracts.
+The documented invalid-input exit code still needs consistent wiring across commands.
+Cross-builds prove compilation, not native macOS/Windows execution.
 
 ## Integration / release instructions
 

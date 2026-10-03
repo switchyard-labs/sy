@@ -33,7 +33,9 @@ func newWorkListCmd() *cobra.Command {
 		Example: "  sy work list\n  sy work list --status open --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
-			var out struct{ Items []WorkItem `json:"items"` }
+			var out struct {
+				Items []WorkItem `json:"items"`
+			}
 			if err := st.client.Do(cmd.Context(), "GET", "/api/work", &out); err != nil {
 				return err
 			}
@@ -75,14 +77,34 @@ func newWorkViewCmd() *cobra.Command {
 			if st.renderer.JSONMode {
 				return st.renderer.Emit(w)
 			}
+			title := str(w, "title")
+			kind := str(w, "kind")
+			status := str(w, "status")
+			st.renderer.Print(fmt.Sprintf("%s  · %s · %s %s", title, str(w, "id"), kind, statusSym(status)))
+			st.renderer.Print("")
 			st.renderer.KV([][2]string{
-				{"ID", str(w, "id")},
-				{"Title", str(w, "title")},
-				{"Kind", str(w, "kind")},
-				{"Status", str(w, "status")},
+				{"Repository", str(w, "repo")},
 				{"Owner", str(w, "owner")},
-				{"Created", str(w, "created_at")},
+				{"Assignee", str(w, "assignee")},
+				{"Updated", relative(str(w, "updated_at"))},
 			})
+			if body := str(w, "body"); body != "" {
+				st.renderer.Print("\nBody\n----\n" + body)
+			}
+			if atts, ok := w["attempts"].([]any); ok && len(atts) > 0 {
+				st.renderer.Print("\nAttempts\n--------")
+				for _, a := range atts {
+					m, _ := a.(map[string]any)
+					st.renderer.Print(fmt.Sprintf("  %s  %s  %s", str(m, "id"), str(m, "branch"), str(m, "status")))
+				}
+			}
+			if prs, ok := w["pull_requests"].([]any); ok && len(prs) > 0 {
+				st.renderer.Print("\nPull requests\n-------------")
+				for _, p := range prs {
+					m, _ := p.(map[string]any)
+					st.renderer.Print(fmt.Sprintf("  %s  %s  %s", str(m, "id"), str(m, "title"), str(m, "status")))
+				}
+			}
 			return nil
 		},
 	}
@@ -102,7 +124,9 @@ func newWorkCreateCmd() *cobra.Command {
 			if kind == "" {
 				kind = "task"
 			}
-			var out struct{ ID string `json:"id"` }
+			var out struct {
+				ID string `json:"id"`
+			}
 			if err := st.client.Do(cmd.Context(), "POST", "/api/work", &out, apiBody(map[string]any{"title": title, "kind": kind})); err != nil {
 				return err
 			}
@@ -120,9 +144,9 @@ func newWorkCreateCmd() *cobra.Command {
 
 func newWorkCloseCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "close <id>",
-		Short:   "Close a Work item",
-		Args:    cobra.ExactArgs(1),
+		Use:   "close <id>",
+		Short: "Close a Work item",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
 			if err := st.client.Do(cmd.Context(), "PATCH", "/api/work/"+args[0], nil, apiBody(map[string]any{"status": "closed"})); err != nil {
@@ -154,7 +178,5 @@ func str(m map[string]any, k string) string {
 	}
 	return ""
 }
-
-
 
 var _ = os.Getenv

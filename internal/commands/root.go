@@ -125,6 +125,9 @@ func New() *cobra.Command {
 	root.PersistentFlags().StringVar(&opts.host, "host", "", "Switchyard host (overrides active host)")
 
 	root.AddCommand(newVersionCmd())
+	root.AddCommand(newStatusCmd())
+	root.AddCommand(newBrowseCmd())
+	root.AddCommand(newConfigCmd())
 	root.AddCommand(newAuthCmd())
 	root.AddCommand(newRepoCmd())
 	root.AddCommand(newWorkCmd())

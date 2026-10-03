@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -69,7 +70,9 @@ func newQueueViewCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
-			var out struct{ Items []map[string]any `json:"items"` }
+			var out struct {
+				Items []map[string]any `json:"items"`
+			}
 			if err := st.client.Do(cmd.Context(), "GET", "/api/queue", &out); err != nil {
 				return err
 			}
@@ -86,13 +89,26 @@ func newQueueViewCmd() *cobra.Command {
 			if st.renderer.JSONMode {
 				return st.renderer.Emit(it)
 			}
+			status := str(it, "status")
+			if status == "blocked" {
+				st.renderer.Print("Integration blocked\n")
+				st.renderer.KV([][2]string{
+					{"Repository", str(it, "repo")},
+					{"Branch", str(it, "branch")},
+					{"Pull request", str(it, "pr_id")},
+					{"Risk", str(it, "risk")},
+				})
+				st.renderer.Print("\nReason\n------")
+				st.renderer.Print(blockedReason(str(it, "error")))
+				st.renderer.Print("\nNext\n----\nResolve the finding or escalate for a decision, then requeue (sy queue requeue " + str(it, "id") + ").")
+				return nil
+			}
 			st.renderer.KV([][2]string{
 				{"ID", str(it, "id")},
 				{"Repo", str(it, "repo")},
 				{"Branch", str(it, "branch")},
-				{"Status", str(it, "status")},
+				{"Status", statusSym(status) + " " + status},
 				{"Risk", str(it, "risk")},
-				{"Policy", str(it, "policy")},
 				{"Error", str(it, "error")},
 			})
 			return nil
@@ -119,4 +135,27 @@ func newQueueRequeueCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// blockedReason turns a raw queue error into a short human explanation.
+func blockedReason(err string) string {
+	switch {
+	case containsAny(err, "semantic_conflict"):
+		return "The combined change violates a repository contract. Git merges cleanly, but Switchyard detected incompatible semantics."
+	case containsAny(err, "preview_conflict"):
+		return "The attempt does not merge cleanly into canonical (a textual/merge conflict)."
+	case containsAny(err, "check_not_passed"):
+		return "The change did not pass its check."
+	default:
+		return err
+	}
+}
+
+func containsAny(s string, subs ...string) bool {
+	for _, x := range subs {
+		if strings.Contains(s, x) {
+			return true
+		}
+	}
+	return false
 }

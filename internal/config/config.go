@@ -49,6 +49,14 @@ func Load() (*Config, error) {
 
 // Path returns the config file path (XDG_CONFIG_HOME or ~/.config).
 func Path() (string, error) {
+	// SY_CONFIG_DIR overrides the whole config directory (useful for testing,
+	// CI and self-hosted setups).
+	if dir := os.Getenv("SY_CONFIG_DIR"); dir != "" {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, "config.json"), nil
+	}
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()

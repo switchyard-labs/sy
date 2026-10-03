@@ -6,10 +6,22 @@ package gitutil
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
 )
+
+// ScopedCredentialEnv applies a transient header only to this HTTPS remote.
+// Redirects and credential helpers are disabled; no credential file is needed.
+func ScopedCredentialEnv(remote, token string) ([]string, error) {
+	u, err := url.Parse(remote)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.ContainsAny(remote, "\r\n\t") || len(token) < 20 || len(token) > 1024 || strings.ContainsAny(token, "\r\n\t ") {
+		return nil, fmt.Errorf("invalid scoped Git capability")
+	}
+	return []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_COUNT=3", "GIT_CONFIG_KEY_0=http." + remote + ".extraHeader", "GIT_CONFIG_VALUE_0=Authorization: Bearer " + token, "GIT_CONFIG_KEY_1=credential.helper", "GIT_CONFIG_VALUE_1=", "GIT_CONFIG_KEY_2=http.followRedirects", "GIT_CONFIG_VALUE_2=false"}, nil
+}
 
 // Cmd runs git with an argument array. envExtras are KEY=VALUE additions.
 func Cmd(ctx context.Context, dir string, envExtras []string, args ...string) (string, string, error) {
@@ -51,9 +63,11 @@ func CredentialFile(token string) (string, func(), error) {
 func CredentialHelperOff() string { return "GIT_TERMINAL_PROMPT=0" }
 
 // DetectOwnerRepo derives owner/repo from a git remote URL. Supports:
-//   https://<account>.artifacts.cloudflare.net/git/<ns>/<repo>.git
-//   https://github.com/owner/repo.git
-//   git@host:owner/repo.git
+//
+//	https://<account>.artifacts.cloudflare.net/git/<ns>/<repo>.git
+//	https://github.com/owner/repo.git
+//	git@host:owner/repo.git
+//
 // Returns ("","") when it cannot be determined.
 func DetectOwnerRepo(remote string) (string, string) {
 	s := strings.TrimSpace(remote)

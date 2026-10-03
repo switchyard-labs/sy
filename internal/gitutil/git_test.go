@@ -79,3 +79,22 @@ func TestCredentialNotInGitConfig(t *testing.T) {
 		t.Fatal("token in argv")
 	}
 }
+func TestScopedCredentialBoundary(t *testing.T) {
+	remote := "https://account.artifacts.cloudflare.net/git/ns/repo.git"
+	token := "opaque-scoped-secret-value?expires=1791059999"
+	env, err := ScopedCredentialEnv(remote, token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(env, "\n"), "GIT_CONFIG_KEY_0=http."+remote+".extraHeader") {
+		t.Fatal("unscoped header")
+	}
+	for _, bad := range []string{"http://host/repo", "https://user:secret@host/repo", "https://host/repo?token=x", "https://host/repo#fragment"} {
+		if _, err = ScopedCredentialEnv(bad, token); err == nil {
+			t.Fatalf("accepted %s", bad)
+		}
+	}
+	if _, err = ScopedCredentialEnv(remote, token+"\n[credential]"); err == nil {
+		t.Fatal("accepted header injection")
+	}
+}

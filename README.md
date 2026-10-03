@@ -98,3 +98,22 @@ Run `sy <command> --help` for examples. See:
   renderer (human table / stable JSON). `--json` is a public contract.
 - **Terminal**: color/spinners are TTY-only; `NO_COLOR`, `TERM=dumb`,
   `--no-color`, and `--json` force deterministic output.
+## Actions and scoped clone
+
+`sy repo clone alice/demo-basic` obtains a short-lived read credential from
+Switchyard automatically. No Artifacts account token is required. Use canonical
+owner/repo when names are ambiguous. Registered repository visibility comes
+from Switchyard metadata.
+
+```sh
+sy actions list --repo alice/demo-basic
+sy actions view RUN_ID --repo alice/demo-basic
+sy actions run --repo alice/demo-basic --sha EXACT_SHA --ref refs/heads/main
+sy actions rerun RUN_ID --repo alice/demo-basic --failed
+sy actions cancel RUN_ID --repo alice/demo-basic
+sy actions logs RUN_ID --repo alice/demo-basic --follow
+```
+
+Logs are bounded captured output; `--follow` stops after terminal completion.
+Ctrl-C stops following only. `--json` logs is NDJSON (one event per line).
+Detailed independent review and certification: [docs/codex-review.md](docs/codex-review.md).

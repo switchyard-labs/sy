@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,20 +12,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/switchyard-labs/sy/internal/gitutil"
-	"github.com/switchyard-labs/sy/internal/output"
 )
 
 // Repo is the domain view of a repository.
 type Repo struct {
-	Owner        string `json:"owner,omitempty"`
-	Name         string `json:"name"`
-	Description  string `json:"description,omitempty"`
+	Owner         string `json:"owner,omitempty"`
+	Name          string `json:"name"`
+	Description   string `json:"description,omitempty"`
 	DefaultBranch string `json:"default_branch"`
-	Remote       string `json:"remote"`
-	Source       string `json:"source,omitempty"`
-	ReadOnly     bool   `json:"read_only"`
-	Registered   bool   `json:"registered"`
-	Visibility   string `json:"visibility,omitempty"`
+	Remote        string `json:"remote"`
+	Source        string `json:"source,omitempty"`
+	ReadOnly      bool   `json:"read_only"`
+	Registered    bool   `json:"registered"`
+	Visibility    string `json:"visibility,omitempty"`
 }
 
 func newRepoCmd() *cobra.Command {
@@ -35,44 +36,62 @@ func newRepoCmd() *cobra.Command {
 	return cmd
 }
 
-func newRepoListCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:     "list",
-		Short:   "List repositories",
-		Example: "  sy repo list\n  sy repo list --json",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			st := stateFrom(cmd)
-			var out struct {
-				Items []struct {
-					Name          string `json:"name"`
-					DefaultBranch string `json:"default_branch"`
-					Remote        string `json:"remote"`
-					ReadOnly      bool   `json:"read_only"`
-					Registered    bool   `json:"registered"`
-					RegisteredAt  string `json:"registered_at,omitempty"`
-				} `json:"items"`
-			}
-			if err := st.client.Do(cmd.Context(), "GET", "/api/repos", &out); err != nil {
-				return err
-			}
-			repos := make([]Repo, 0, len(out.Items))
-			rows := make([][]string, 0, len(out.Items))
-			for _, it := range out.Items {
-				owner, name := gitutil.DetectOwnerRepo(it.Remote)
-				vis := "private"
-				if !it.ReadOnly {
-					vis = "public"
-				}
-				repos = append(repos, Repo{Owner: owner, Name: name, DefaultBranch: it.DefaultBranch, Remote: it.Remote, ReadOnly: it.ReadOnly, Registered: it.Registered, Visibility: vis})
-				rows = append(rows, []string{owner, name, vis, it.DefaultBranch, output.TimeAgo(it.RegisteredAt)})
-			}
-			if st.renderer.JSONMode {
-				return st.renderer.Emit(map[string]any{"items": repos})
-			}
-			st.renderer.Table([]string{"OWNER", "REPOSITORY", "VISIBILITY", "DEFAULT", "UPDATED"}, rows)
-			return nil
-		},
+type canonicalRepo struct {
+	Owner         string `json:"owner_slug"`
+	Name          string `json:"slug"`
+	FullName      string `json:"full_name"`
+	ArtifactName  string `json:"artifact_name"`
+	Description   string `json:"description"`
+	Visibility    string `json:"visibility"`
+	DefaultBranch string `json:"default_branch"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+func canonicalRepos(cmd *cobra.Command) ([]canonicalRepo, error) {
+	var out struct {
+		Items []canonicalRepo `json:"items"`
 	}
+	err := stateFrom(cmd).client.Do(cmd.Context(), "GET", "/api/repositories", &out)
+	return out.Items, err
+}
+func resolveRepo(cmd *cobra.Command, name string) (canonicalRepo, error) {
+	items, err := canonicalRepos(cmd)
+	if err != nil {
+		return canonicalRepo{}, err
+	}
+	var matches []canonicalRepo
+	for _, r := range items {
+		if r.FullName == name || r.Name == name || r.ArtifactName == name {
+			matches = append(matches, r)
+		}
+	}
+	if len(matches) != 1 {
+		return canonicalRepo{}, fmt.Errorf("repository %q matched %d registered repositories; specify owner/repo", name, len(matches))
+	}
+	return matches[0], nil
+}
+func canonicalPath(r canonicalRepo) string {
+	return "/api/repositories/" + url.PathEscape(r.Owner) + "/" + url.PathEscape(r.Name)
+}
+func newRepoListCmd() *cobra.Command {
+	return &cobra.Command{Use: "list", Short: "List repositories", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		st := stateFrom(cmd)
+		items, err := canonicalRepos(cmd)
+		if err != nil {
+			return err
+		}
+		repos := make([]Repo, 0, len(items))
+		rows := [][]string{}
+		for _, r := range items {
+			repos = append(repos, Repo{Owner: r.Owner, Name: r.Name, Description: r.Description, DefaultBranch: r.DefaultBranch, Visibility: r.Visibility, Registered: true})
+			rows = append(rows, []string{r.FullName, r.Visibility, r.DefaultBranch, timeAgo(r.UpdatedAt)})
+		}
+		if st.renderer.JSONMode {
+			return st.renderer.Emit(map[string]any{"items": repos})
+		}
+		st.renderer.Table([]string{"REPOSITORY", "VISIBILITY", "DEFAULT", "UPDATED"}, rows)
+		return nil
+	}}
 }
 
 func newRepoViewCmd() *cobra.Command {
@@ -94,43 +113,18 @@ func newRepoViewCmd() *cobra.Command {
 				}
 				name = n
 			}
-			// canonical metadata first (owner/repo); fall back to legacy flat name.
-			var meta struct {
-				Items []struct {
-					Owner string `json:"owner"`
-					Name  string `json:"name"`
-					Description string `json:"description,omitempty"`
-					Visibility string `json:"visibility,omitempty"`
-					DefaultBranch string `json:"default_branch,omitempty"`
-					Remote string `json:"remote,omitempty"`
-				} `json:"items"`
+			resolved, err := resolveRepo(cmd, name)
+			if err != nil {
+				return err
 			}
-			_ = st.client.Do(cmd.Context(), "GET", "/api/repositories", &meta)
-			var found *Repo
-			for _, it := range meta.Items {
-				if it.Name == name || (it.Owner+"/"+it.Name) == name {
-					found = &Repo{Owner: it.Owner, Name: it.Name, Description: it.Description, Visibility: it.Visibility, DefaultBranch: it.DefaultBranch, Remote: it.Remote, Registered: true}
-					break
-				}
+			var backend struct {
+				ReadOnly bool   `json:"read_only"`
+				Source   string `json:"source"`
 			}
-			if found == nil {
-				var r struct {
-					Name          string `json:"name"`
-					DefaultBranch string `json:"default_branch"`
-					Remote        string `json:"remote"`
-					Source        string `json:"source"`
-					ReadOnly      bool   `json:"read_only"`
-				}
-				if err := st.client.Do(cmd.Context(), "GET", "/api/repos/"+name, &r); err != nil {
-					return err
-				}
-				owner, rname := gitutil.DetectOwnerRepo(r.Remote)
-				vis := "private"
-				if !r.ReadOnly {
-					vis = "public"
-				}
-				found = &Repo{Owner: owner, Name: rname, DefaultBranch: r.DefaultBranch, Remote: r.Remote, Source: r.Source, ReadOnly: r.ReadOnly, Visibility: vis}
+			if err = st.client.Do(cmd.Context(), "GET", canonicalPath(resolved), &backend); err != nil {
+				return err
 			}
+			found := &Repo{Owner: resolved.Owner, Name: resolved.Name, Description: resolved.Description, Visibility: resolved.Visibility, DefaultBranch: resolved.DefaultBranch, Registered: true, ReadOnly: backend.ReadOnly, Source: backend.Source}
 			if st.renderer.JSONMode {
 				return st.renderer.Emit(found)
 			}
@@ -149,76 +143,71 @@ func newRepoViewCmd() *cobra.Command {
 }
 
 func newRepoCloneCmd() *cobra.Command {
-	var flagRepo, token, dir string
-	cmd := &cobra.Command{
-		Use:     "clone [owner/repo] [directory]",
-		Short:   "Clone a Switchyard repository using ordinary Git",
-		Example: "  sy repo clone demo-basic\n  sy repo clone alice/demo-basic ./demo",
-		Args:    cobra.MaximumNArgs(2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			st := stateFrom(cmd)
-			name := flagRepo
-			if len(args) > 0 {
-				name = args[0]
-			}
-			if name == "" {
-				n, err := currentRepoName(cmd.Context())
-				if err != nil {
-					return err
-				}
-				name = n
-			}
-			if len(args) > 1 {
-				dir = args[1]
-			}
-			var r struct {
-				Name          string `json:"name"`
-				DefaultBranch string `json:"default_branch"`
-				Remote        string `json:"remote"`
-			}
-			if err := st.client.Do(cmd.Context(), "GET", "/api/repos/"+name, &r); err != nil {
+	var flagRepo, dir string
+	cmd := &cobra.Command{Use: "clone [owner/repo] [directory]", Short: "Clone using a short-lived scoped Switchyard credential", Args: cobra.MaximumNArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		st := stateFrom(cmd)
+		name := flagRepo
+		if len(args) > 0 {
+			name = args[0]
+		}
+		if name == "" {
+			var err error
+			name, err = currentRepoName(cmd.Context())
+			if err != nil {
 				return err
 			}
-			if token == "" {
-				token = os.Getenv("SY_GIT_TOKEN")
+		}
+		r, err := resolveRepo(cmd, name)
+		if err != nil {
+			return err
+		}
+		var capability struct {
+			Remote     string `json:"remote"`
+			Token      string `json:"token"`
+			Repository string `json:"repository"`
+		}
+		if err = st.client.Do(cmd.Context(), "POST", canonicalPath(r)+"/git-credential", &capability, apiBody(map[string]any{"scope": "read", "ttl_seconds": 600})); err != nil {
+			return err
+		}
+		if capability.Repository != r.FullName {
+			return fmt.Errorf("clone capability repository mismatch")
+		}
+		env, err := gitutil.ScopedCredentialEnv(capability.Remote, capability.Token)
+		if err != nil {
+			return err
+		}
+		if len(args) > 1 {
+			dir = args[1]
+		}
+		if dir == "" {
+			dir = r.Name
+		}
+		parent := filepath.Dir(dir)
+		if parent != "." && parent != "/" {
+			if err = os.MkdirAll(parent, 0755); err != nil {
+				return err
 			}
-			if dir == "" {
-				dir = r.Name
-			}
-			env := []string{gitutil.CredentialHelperOff(), "GIT_CONFIG_NOSYSTEM=1"}
-			credFile := ""
-			cleanup := func() {}
-			if token != "" {
-				// credential via GIT_CONFIG_GLOBAL temp file: never in argv,
-				// never in .git/config
-				credFile, cleanup, _ = gitutil.CredentialFile(token)
-				defer cleanup()
-				if credFile != "" {
-					env = append(env, "GIT_CONFIG_GLOBAL="+credFile)
-				}
-			} else {
-				st.renderer.Print("note: Switchyard API does not yet expose a scoped git credential; cloning anonymously (may fail). Provide SY_GIT_TOKEN or --token.")
-			}
-			parent := filepath.Dir(dir)
-			if parent != "." && parent != "/" {
-				if err := os.MkdirAll(parent, 0755); err != nil {
-					return err
-				}
-			}
-			_, serr, err := gitutil.Cmd(cmd.Context(), ".", env, "clone", "--", r.Remote, dir)
-			if err != nil {
-				return fmt.Errorf("clone %s: %s", r.Remote, strings.TrimSpace(serr))
-			}
-			// ensure no credential leaked into the clone's config
-			_, _, _ = gitutil.Cmd(cmd.Context(), dir, nil, "config", "--unset-all", "http.extraheader")
-			st.renderer.Print(fmt.Sprintf("cloned %s (%s) -> %s", name, r.Remote, dir))
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&flagRepo, "repo", "", "owner/repo or repo name")
-	cmd.Flags().StringVar(&token, "token", "", "scoped Git token (avoids SY_GIT_TOKEN)")
-	cmd.Flags().StringVar(&dir, "dir", "", "clone directory (default: repo name)")
-	cmd.Flags().MarkHidden("token")
+		}
+		_, serr, err := gitutil.Cmd(cmd.Context(), ".", env, "clone", "--", capability.Remote, dir)
+		if err != nil {
+			return fmt.Errorf("clone %s: %s", r.FullName, strings.ReplaceAll(strings.TrimSpace(serr), capability.Token, "[redacted]"))
+		}
+		gitdir, _, err := gitutil.Cmd(cmd.Context(), dir, nil, "rev-parse", "--absolute-git-dir")
+		if err != nil {
+			return err
+		}
+		contextBytes, _ := json.Marshal(map[string]string{"repository": r.FullName})
+		if err = os.WriteFile(filepath.Join(strings.TrimSpace(gitdir), "switchyard.json"), contextBytes, 0600); err != nil {
+			return err
+		}
+		if st.renderer.JSONMode {
+			return st.renderer.Emit(map[string]any{"repository": r.FullName, "directory": dir, "remote": capability.Remote})
+		}
+		st.renderer.Print(fmt.Sprintf("Cloned %s into %s", r.FullName, dir))
+		return nil
+	}}
+	cmd.Flags().StringVar(&flagRepo, "repo", "", "owner/repo or unique repository name")
+	cmd.Flags().StringVar(&dir, "dir", "", "clone directory")
 	return cmd
 }
 
@@ -228,6 +217,17 @@ func currentRepoName(ctx context.Context) (string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
 		return "", err
+	}
+	gitdir, _, giterr := gitutil.Cmd(ctx, wd, nil, "rev-parse", "--absolute-git-dir")
+	if giterr == nil {
+		if data, readerr := os.ReadFile(filepath.Join(strings.TrimSpace(gitdir), "switchyard.json")); readerr == nil {
+			var saved struct {
+				Repository string `json:"repository"`
+			}
+			if json.Unmarshal(data, &saved) == nil && strings.Count(saved.Repository, "/") == 1 {
+				return saved.Repository, nil
+			}
+		}
 	}
 	remote, err := gitutil.RemoteURL(ctx, wd)
 	if err != nil {

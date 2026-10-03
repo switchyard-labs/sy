@@ -5,11 +5,11 @@
 | repo list | supported | `GET /api/repos` |
 | repo view | supported | `GET /api/repos/{name}` (+ canonical metadata when registered) |
 | repo clone (remote) | supported | `GET /api/repos/{name}` → remote |
-| repo clone (token) | **server gap** | no clone-token endpoint (see api-feedback) |
+| repo clone (token) | supported | POST `/api/repositories/{owner}/{repo}/git-credential` (read,600s) |
 | work list/view/create/close | supported | `/api/work…` |
 | work comments | supported | `GET/POST /api/work/{id}/comments` |
-| attempt list | supported (derived) | work detail `attempts[]` (list omits attempts) |
-| attempt view | supported (derived) | work detail scan |
+| attempt list | supported | paginated GET `/api/attempts` |
+| attempt view | supported | GET `/api/attempts/{id}` |
 | attempt run | supported | `POST /api/attempts/{id}/run` |
 | pr list/view/checks | supported | `/api/prs…` |
 | pr findings | supported | `GET /api/findings` |
@@ -19,7 +19,7 @@
 | agent roles/executions | supported | `/api/roles`, `/api/executions` |
 | org list/view | supported | `/api/orgs…` |
 | api escape hatch | supported | any authenticated endpoint |
-| Actions / CI | **waiting on server API** | no `actions*` routes yet |
+| Actions / CI | supported | canonical repository Actions list/detail/dispatch/rerun/cancel/logs |
 | durable API tokens | **waiting on server API** | cookie sessions only |
 
 Documented gaps: `docs/switchyard-api-feedback.md`.

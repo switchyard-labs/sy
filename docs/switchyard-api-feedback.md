@@ -1,3 +1,11 @@
+# Current resolution (2026-10-04)
+
+Clone credentials, Actions, corrected upstream429/Retry-After and top-level
+paginated Attempts are implemented and consumed by the reviewed CLI.
+PAT/device login remains absent. See `codex-review.md` and Switchyard
+`docs/plan/sy-api-handoff.md` for current contracts. The original feedback below
+is historical and must not be read as the current server capability list.
+
 # Switchyard API feedback (surfaced by `sy`)
 
 Documented for the Switchyard team (Codex). `sy` is an API dogfood client.

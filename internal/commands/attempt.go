@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,37 +28,34 @@ func newAttemptCmd() *cobra.Command {
 	return cmd
 }
 
-// listAttempts scans Work items for their attempts. Switchyard's work LIST
-// omits attempts (they appear only in work detail), so this fetches details for
-// a bounded window. Capped to avoid hammering the server; see
-// docs/switchyard-api-feedback.md (server should include attempts in the list).
+// listAttempts reads the authorized top-level API instead of scanning Work.
 func listAttempts(ctx context.Context, st *state) ([]Attempt, error) {
-	var out struct{ Items []struct {
-		ID string `json:"id"`
-	} `json:"items"` }
-	if err := st.client.Do(ctx, "GET", "/api/work", &out); err != nil {
-		return nil, err
-	}
-	const maxScan = 30
-	limit := maxScan
-	if len(out.Items) < limit {
-		limit = len(out.Items)
-	}
-	var atts []Attempt
-	for i := 0; i < limit; i++ {
-		var w struct {
-			ID       string   `json:"id"`
-			Attempts []Attempt `json:"attempts"`
+	result := []Attempt{}
+	cursor := ""
+	seen := map[string]bool{}
+	for page := 0; page < 1000; page++ {
+		var out struct {
+			Items []Attempt `json:"items"`
+			Next  string    `json:"next_cursor"`
 		}
-		if err := st.client.Do(ctx, "GET", "/api/work/"+out.Items[i].ID, &w); err != nil {
-			continue
+		path := "/api/attempts"
+		if cursor != "" {
+			path += "?cursor=" + url.QueryEscape(cursor)
 		}
-		for _, a := range w.Attempts {
-			a.WorkID = w.ID
-			atts = append(atts, a)
+		if err := st.client.Do(ctx, "GET", path, &out); err != nil {
+			return nil, err
 		}
+		result = append(result, out.Items...)
+		if out.Next == "" {
+			return result, nil
+		}
+		if seen[out.Next] {
+			return nil, fmt.Errorf("attempt pagination cursor repeated")
+		}
+		seen[out.Next] = true
+		cursor = out.Next
 	}
-	return atts, nil
+	return nil, fmt.Errorf("attempt pagination exceeded safety limit")
 }
 
 func newAttemptListCmd() *cobra.Command {
@@ -106,19 +104,9 @@ func newAttemptViewCmd() *cobra.Command {
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
-			atts, err := listAttempts(cmd.Context(), st)
-			if err != nil {
+			a := &Attempt{}
+			if err := st.client.Do(cmd.Context(), "GET", "/api/attempts/"+url.PathEscape(args[0]), a); err != nil {
 				return err
-			}
-			var a *Attempt
-			for i := range atts {
-				if atts[i].ID == args[0] {
-					a = &atts[i]
-					break
-				}
-			}
-			if a == nil {
-				return fmt.Errorf("attempt %s not found", args[0])
 			}
 			if st.renderer.JSONMode {
 				return st.renderer.Emit(map[string]any{"attempt": a, "work_id": a.WorkID})

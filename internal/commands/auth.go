@@ -85,6 +85,10 @@ func newAuthLoginCmd() *cobra.Command {
 				return err
 			}
 			r := output.New(os.Stdout, false, false, false)
+			jsonMode, _ := cmd.Root().PersistentFlags().GetBool("json")
+			if jsonMode {
+				return r.Emit(map[string]any{"host": key, "user": username, "authenticated": true})
+			}
 			if prev != "" && prev != key {
 				r.Print(fmt.Sprintf("Switched from %s to %s", prev, key))
 			}

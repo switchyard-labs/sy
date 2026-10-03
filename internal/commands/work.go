@@ -21,7 +21,7 @@ type WorkItem struct {
 
 func newWorkCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "work", Short: "Work items (issues/tasks)"}
-	cmd.AddCommand(newWorkListCmd(), newWorkViewCmd(), newWorkCreateCmd(), newWorkCloseCmd())
+	cmd.AddCommand(newWorkListCmd(), newWorkViewCmd(), newWorkCreateCmd(), newWorkCommentCmd(), newWorkCloseCmd())
 	return cmd
 }
 
@@ -111,7 +111,7 @@ func newWorkViewCmd() *cobra.Command {
 }
 
 func newWorkCreateCmd() *cobra.Command {
-	var title, kind string
+	var title, kind, body, bodyFile string
 	cmd := &cobra.Command{
 		Use:     "create",
 		Short:   "Create a Work item",
@@ -139,6 +139,43 @@ func newWorkCreateCmd() *cobra.Command {
 	}
 	cmd.Flags().StringVar(&title, "title", "", "work title")
 	cmd.Flags().StringVar(&kind, "kind", "task", "work kind (feature/fix/task)")
+	cmd.Flags().StringVar(&body, "body", "", "work body")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read body from file ('-' for stdin)")
+	return cmd
+}
+
+func newWorkCommentCmd() *cobra.Command {
+	var body, bodyFile string
+	cmd := &cobra.Command{
+		Use:     "comment <id>",
+		Short:   "Add a comment to a Work item",
+		Example: "  sy work comment wk_123 --body 'please review'",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st := stateFrom(cmd)
+			if body == "" && bodyFile != "" {
+				b, err := os.ReadFile(bodyFile)
+				if err != nil {
+					return err
+				}
+				body = string(b)
+			}
+			if body == "" {
+				return fmt.Errorf("--body or --body-file is required")
+			}
+			var out map[string]any
+			if err := st.client.Do(cmd.Context(), "POST", "/api/work/"+args[0]+"/comments", &out, apiBody(map[string]any{"body": body})); err != nil {
+				return err
+			}
+			if st.renderer.JSONMode {
+				return st.renderer.Emit(map[string]any{"work": args[0], "body": body})
+			}
+			st.renderer.Print(fmt.Sprintf("commented on %s", args[0]))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&body, "body", "", "comment body")
+	cmd.Flags().StringVar(&bodyFile, "body-file", "", "read body from file")
 	return cmd
 }
 

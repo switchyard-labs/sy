@@ -23,7 +23,7 @@ type PR struct {
 
 func newPRCmd() *cobra.Command {
 	cmd := &cobra.Command{Use: "pr", Short: "Pull requests"}
-	cmd.AddCommand(newPRListCmd(), newPRViewCmd(), newPRChecksCmd())
+	cmd.AddCommand(newPRListCmd(), newPRViewCmd(), newPRChecksCmd(), newPRFindingsCmd())
 	return cmd
 }
 
@@ -35,7 +35,9 @@ func newPRListCmd() *cobra.Command {
 		Example: "  sy pr list\n  sy pr list --status open --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
-			var out struct{ Items []PR `json:"items"` }
+			var out struct {
+				Items []PR `json:"items"`
+			}
 			if err := st.client.Do(cmd.Context(), "GET", "/api/prs", &out); err != nil {
 				return err
 			}
@@ -83,8 +85,10 @@ func newPRViewCmd() *cobra.Command {
 				{"Repo", str(p, "repo")},
 				{"Branch", str(p, "branch")},
 				{"Base", str(p, "base")},
-				{"Status", str(p, "status")},
+				{"Status", statusSym(str(p, "status")) + " " + str(p, "status")},
 				{"Check", str(p, "check_status")},
+				{"Attempt", str(p, "attempt_id")},
+				{"Work", str(p, "work_id")},
 			})
 			return nil
 		},
@@ -93,9 +97,9 @@ func newPRViewCmd() *cobra.Command {
 
 func newPRChecksCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:     "checks <id>",
-		Short:   "Show checks for a pull request",
-		Args:    cobra.ExactArgs(1),
+		Use:   "checks <id>",
+		Short: "Show checks for a pull request",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
 			var p map[string]any
@@ -132,5 +136,40 @@ func statusIcon(s string) string {
 		return "…"
 	default:
 		return "·"
+	}
+}
+
+// newPRFindingsCmd lists review findings for a PR (progressive disclosure of
+// Switchyard's review model).
+func newPRFindingsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "findings <pr-id>",
+		Short:   "List review findings for a pull request",
+		Example: "  sy pr findings pr_123 --json",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			st := stateFrom(cmd)
+			var out struct {
+				Items []struct {
+					Severity string `json:"severity"`
+					Message  string `json:"message"`
+					File     string `json:"file"`
+					Status   string `json:"status"`
+				} `json:"items"`
+			}
+			if err := st.client.Do(cmd.Context(), "GET", "/api/findings", &out); err != nil {
+				return err
+			}
+			items := out.Items
+			if st.renderer.JSONMode {
+				return st.renderer.Emit(map[string]any{"pr": args[0], "items": items})
+			}
+			rows := make([][]string, 0, len(items))
+			for _, f := range items {
+				rows = append(rows, []string{f.Severity, f.Message, f.File, f.Status})
+			}
+			st.renderer.Table([]string{"SEVERITY", "MESSAGE", "FILE", "STATUS"}, rows)
+			return nil
+		},
 	}
 }

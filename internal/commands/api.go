@@ -18,10 +18,14 @@ func newAPICmd() *cobra.Command {
 		Use:     "api <path>",
 		Short:   "Make an authenticated API request (power-user / agent escape hatch)",
 		Example: "  sy api GET /api/work\n  sy api POST /api/work --body '{\"title\":\"x\"}'\n  sy api GET /api/work --json",
-		Args:    cobra.ExactArgs(1),
+		Args:    cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			st := stateFrom(cmd)
 			path := args[0]
+			if len(args) == 2 {
+				method = args[0]
+				path = args[1]
+			}
 			// allow "GET /api/work" as one arg with a space
 			if strings.HasPrefix(path, "GET ") || strings.HasPrefix(path, "POST ") || strings.HasPrefix(path, "PATCH ") || strings.HasPrefix(path, "DELETE ") {
 				parts := strings.SplitN(path, " ", 2)

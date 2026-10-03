@@ -1,7 +1,41 @@
 # Switchyard API feedback (surfaced by `sy`)
 
-Documented for the Switchyard team (Codex). `sy` is an API dogfood client;
-these are contracts that made the CLI awkward, with suggested improvements.
+Documented for the Switchyard team (Codex). `sy` is an API dogfood client.
+Findings are classified: **BLOCKS SY FEATURE / POOR DX / NICE API IMPROVEMENT /
+SERVER BUG**.
+
+## BLOCKS SY FEATURE
+- **Clone-token endpoint missing** — `sy repo clone` can obtain the remote but
+  not a scoped Git credential. Suggested: `POST /api/repos/{owner}/{repo}/clone-token`.
+  Workaround: `SY_GIT_TOKEN`.
+- **Durable API token / device login missing** — cookie sessions only; `sy`
+  and headless agents rely on them. Suggested: token minting + device login.
+- **Actions/CI API absent** — no `actions*` routes yet; `sy actions` is
+  designed but unimplemented until the server API lands.
+
+## SERVER BUG
+- **Artifacts throttling mapped to 404** — upstream 429 rate limits surface as
+  `repo_not_found` (404), which misleads clients into thinking the repo is
+  missing. `sy` must NOT treat 404 as a rate-limit hint; this needs a server
+  fix (e.g. 503 + Retry-After).
+
+## POOR DX
+- **`GET /api/repos` mixes fixtures + lacks owner/repo/visibility** — `sy repo
+  list` shows the Artifacts namespace as owner; demo vs fixture debris is
+  indistinguishable.
+- **Canonical owner/repo metadata optional/empty** — repos must be explicitly
+  registered; the legacy flat API is the only reliable source today.
+- **Attention summaries too raw** — e.g. `integration blocked:
+  semantic_conflict`; `sy` humanizes what it can, but the server should expose
+  structured `what/why/options`.
+- **Work list omits attempts** — `sy attempt list` must fetch per-work detail
+  (bounded scan); the list should include attempts.
+- **Run response lacks adapter/runner** — `POST /api/attempts/{id}/run` does not
+  identify which runner executed.
+
+## NICE API IMPROVEMENT
+- `GET /api/attempts` and `GET /api/attempts/{id}` top-level endpoints.
+- PR comments API (Work comments exist; PR comments do not).
 
 | Endpoint | Problem | Why it matters to a CLI | Suggested improvement | Workaround |
 | --- | --- | --- | --- | --- |

@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -28,15 +30,17 @@ func newVersionCmd() *cobra.Command {
 			if st != nil && st.renderer.JSONMode {
 				return st.renderer.Emit(info)
 			}
-			cmd.Println("sy " + Version)
+			_ = info
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, "sy "+Version)
 			if Commit != "" {
-				cmd.Println("commit " + Commit)
+				fmt.Fprintln(out, "commit "+Commit)
 			}
 			if BuildDate != "" {
-				cmd.Println("built " + BuildDate)
+				fmt.Fprintln(out, "built "+BuildDate)
 			}
 			if GoVersion != "" {
-				cmd.Println("go " + GoVersion)
+				fmt.Fprintln(out, "go "+GoVersion)
 			}
 			return nil
 		},

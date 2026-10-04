@@ -129,17 +129,23 @@ func newRepoViewCmd() *cobra.Command {
 				return st.renderer.Emit(found)
 			}
 			st.renderer.KV([][2]string{
-				{"Name", found.Name},
+				{"Repository", resolved.Owner + "/" + found.Name},
 				{"Visibility", found.Visibility},
 				{"Default branch", found.DefaultBranch},
-				{"Clone", found.Remote},
-				{"Description", found.Description},
+				{"Description", repoDescription(found.Description)},
 			})
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&flagRepo, "repo", "", "owner/repo or repo name")
 	return cmd
+}
+
+func repoDescription(description string) string {
+	if description == "" {
+		return "No description."
+	}
+	return description
 }
 
 func newRepoCloneCmd() *cobra.Command {

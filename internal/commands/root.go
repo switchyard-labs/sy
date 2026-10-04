@@ -132,6 +132,7 @@ func New() *cobra.Command {
 	root.AddCommand(newRepoCmd())
 	root.AddCommand(newActionsCmd())
 	root.AddCommand(newReleaseCmd())
+	root.AddCommand(newProposalCmd())
 	root.AddCommand(newWorkCmd())
 	root.AddCommand(newAttemptCmd())
 	root.AddCommand(newPRCmd())

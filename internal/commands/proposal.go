@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/spf13/cobra"
 	"github.com/switchyard-labs/sy/internal/api"
@@ -224,5 +225,40 @@ func newProposalCmd() *cobra.Command {
 		return nil
 	}}
 	group.AddCommand(links)
+	var prompt, branch, executionID, target, provider, model, credential string
+	generate := &cobra.Command{Use: "generate", Short: "Ask the proposer Agent, or recover a completed execution", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
+		if prompt == "" && executionID == "" {
+			return fmt.Errorf("provide --prompt or --execution-id")
+		}
+		if (provider != "" || model != "" || credential != "") && (provider == "" || model == "" || credential == "") {
+			return fmt.Errorf("--provider requires --model and --credential")
+		}
+		root, err := rootFor(cmd)
+		if err != nil {
+			return err
+		}
+		options := []api.RequestOption{api.WithBody(map[string]any{"prompt": prompt, "branch": branch, "execution_id": executionID, "proposal_id": target})}
+		if provider != "" {
+			selected, _ := json.Marshal(map[string]string{"provider": provider, "model": model, "credential_id": credential})
+			options = append(options, api.WithHeader("X-Switchyard-Agent", string(selected)))
+		}
+		var result map[string]any
+		if err = stateFrom(cmd).client.Do(cmd.Context(), "POST", root+"/generate", &result, options...); err != nil {
+			return err
+		}
+		if target != "" && !stateFrom(cmd).renderer.JSONMode {
+			stateFrom(cmd).renderer.Print("Agent discussion reply: " + fmt.Sprint(result["id"]))
+			return nil
+		}
+		return emit(cmd, result)
+	}}
+	generate.Flags().StringVar(&prompt, "prompt", "", "evidence and question")
+	generate.Flags().StringVar(&branch, "branch", "", "source branch (default: repository default)")
+	generate.Flags().StringVar(&executionID, "execution-id", "", "recover completed proposer execution without rerunning")
+	generate.Flags().StringVar(&target, "proposal-id", "", "reply in this Proposal's discussion")
+	generate.Flags().StringVar(&provider, "provider", "", "per-request provider (default: saved proposer choice)")
+	generate.Flags().StringVar(&model, "model", "", "per-request model")
+	generate.Flags().StringVar(&credential, "credential", "", "personal credential ID, never the secret")
+	group.AddCommand(generate)
 	return group
 }

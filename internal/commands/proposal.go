@@ -138,5 +138,91 @@ func newProposalCmd() *cobra.Command {
 	_ = work.MarkFlagRequired("version")
 	_ = work.MarkFlagRequired("operation-id")
 	group.AddCommand(work)
+
+	var updateVersion string
+	update := &cobra.Command{Use: "update <id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		input := map[string]any{"version": updateVersion}
+		for _, field := range []string{"title", "description", "type", "priority", "severity"} {
+			if cmd.Flags().Changed(field) {
+				input[field], _ = cmd.Flags().GetString(field)
+			}
+		}
+		if len(input) == 1 {
+			return fmt.Errorf("provide at least one metadata field")
+		}
+		root, err := rootFor(cmd)
+		if err != nil {
+			return err
+		}
+		var result map[string]any
+		if err = stateFrom(cmd).client.Do(cmd.Context(), "PATCH", root+"/"+url.PathEscape(args[0]), &result, api.WithBody(input)); err != nil {
+			return err
+		}
+		return emit(cmd, result)
+	}}
+	update.Flags().StringVar(&updateVersion, "version", "", "expected Proposal version")
+	for _, field := range []string{"title", "description", "type", "priority", "severity"} {
+		update.Flags().String(field, "", "new "+field)
+	}
+	_ = update.MarkFlagRequired("version")
+	group.AddCommand(update)
+	var commentVersion, commentBody string
+	comment := &cobra.Command{Use: "comment <id>", Short: "Add discussion with expected version", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		root, err := rootFor(cmd)
+		if err != nil {
+			return err
+		}
+		var result map[string]any
+		if err = stateFrom(cmd).client.Do(cmd.Context(), "POST", root+"/"+url.PathEscape(args[0])+"/comments", &result, api.WithBody(map[string]any{"version": commentVersion, "body": commentBody})); err != nil {
+			return err
+		}
+		if stateFrom(cmd).renderer.JSONMode {
+			return stateFrom(cmd).renderer.Emit(result)
+		}
+		stateFrom(cmd).renderer.Print("Comment added")
+		return nil
+	}}
+	comment.Flags().StringVar(&commentVersion, "version", "", "expected Proposal version")
+	comment.Flags().StringVar(&commentBody, "body", "", "comment text")
+	_ = comment.MarkFlagRequired("version")
+	_ = comment.MarkFlagRequired("body")
+	group.AddCommand(comment)
+	var graphVersion, relation, targetKind string
+	link := &cobra.Command{Use: "link <id> <target-id>", Short: "Link a Proposal or existing Work", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		root, err := rootFor(cmd)
+		if err != nil {
+			return err
+		}
+		var result map[string]any
+		if err = stateFrom(cmd).client.Do(cmd.Context(), "POST", root+"/"+url.PathEscape(args[0])+"/links", &result, api.WithBody(map[string]any{"version": graphVersion, "relation": relation, "target_kind": targetKind, "target_id": args[1]})); err != nil {
+			return err
+		}
+		if stateFrom(cmd).renderer.JSONMode {
+			return stateFrom(cmd).renderer.Emit(result)
+		}
+		stateFrom(cmd).renderer.Print("Relationship saved")
+		return nil
+	}}
+	link.Flags().StringVar(&graphVersion, "version", "", "expected graph version from links")
+	link.Flags().StringVar(&relation, "relation", "related", "related, duplicates, supersedes, superseded_by or work")
+	link.Flags().StringVar(&targetKind, "target-kind", "proposal", "proposal or work")
+	_ = link.MarkFlagRequired("version")
+	group.AddCommand(link)
+	links := &cobra.Command{Use: "links <id>", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		root, err := rootFor(cmd)
+		if err != nil {
+			return err
+		}
+		var result map[string]any
+		if err = stateFrom(cmd).client.Do(cmd.Context(), "GET", root+"/"+url.PathEscape(args[0])+"/links", &result); err != nil {
+			return err
+		}
+		if stateFrom(cmd).renderer.JSONMode {
+			return stateFrom(cmd).renderer.Emit(result)
+		}
+		stateFrom(cmd).renderer.Print(fmt.Sprint(result))
+		return nil
+	}}
+	group.AddCommand(links)
 	return group
 }

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +16,14 @@ import (
 // The final path is published without replacing an existing file. Redirects
 // retain the client's prohibition, so session credentials never cross origins.
 func (c *Client) DownloadFile(ctx context.Context, path, destination, expectedCommit string, limit int64) (int64, error) {
+	return c.downloadFile(ctx, path, destination, expectedCommit, "", -1, limit)
+}
+
+func (c *Client) DownloadAsset(ctx context.Context, path, destination, checksum string, size int64) (int64, error) {
+	return c.downloadFile(ctx, path, destination, "", checksum, size, 64<<20)
+}
+
+func (c *Client) downloadFile(ctx context.Context, path, destination, expectedCommit, checksum string, size, limit int64) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+path, nil)
 	if err != nil {
 		return 0, err
@@ -44,7 +54,8 @@ func (c *Client) DownloadFile(ctx context.Context, path, destination, expectedCo
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	n, err := io.Copy(file, io.LimitReader(resp.Body, limit+1))
+	digest := sha256.New()
+	n, err := io.Copy(io.MultiWriter(file, digest), io.LimitReader(resp.Body, limit+1))
 	if err != nil {
 		return 0, err
 	}
@@ -53,6 +64,9 @@ func (c *Client) DownloadFile(ctx context.Context, path, destination, expectedCo
 	}
 	if resp.ContentLength >= 0 && n != resp.ContentLength {
 		return 0, io.ErrUnexpectedEOF
+	}
+	if checksum != "" && (hex.EncodeToString(digest.Sum(nil)) != checksum || n != size) {
+		return 0, fmt.Errorf("release asset size or SHA256 mismatch")
 	}
 	if err = file.Sync(); err != nil {
 		return 0, err

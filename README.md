@@ -117,3 +117,5 @@ sy actions logs RUN_ID --repo alice/demo-basic --follow
 Logs are bounded captured output; `--follow` stops after terminal completion.
 Ctrl-C stops following only. `--json` logs is NDJSON (one event per line).
 Detailed independent review and certification: [docs/codex-review.md](docs/codex-review.md).
+
+Download source at a branch, tag or commit with `sy repo archive owner/repo --ref main --format zip --output source.zip` (or `--format tar.gz`). The command resolves the ref to an immutable commit first, verifies the server's commit header, and streams a bounded archive to a private temporary file. Existing output files are never overwritten. `--json` reports repository, requested ref, resolved commit, path, format and bytes.

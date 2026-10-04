@@ -32,7 +32,7 @@ func newRepoCmd() *cobra.Command {
 		Use:   "repo",
 		Short: "Work with repositories",
 	}
-	cmd.AddCommand(newRepoListCmd(), newRepoViewCmd(), newRepoCloneCmd())
+	cmd.AddCommand(newRepoListCmd(), newRepoViewCmd(), newRepoCloneCmd(), newRepoArchiveCmd())
 	return cmd
 }
 

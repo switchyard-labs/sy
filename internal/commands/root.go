@@ -115,6 +115,7 @@ func New() *cobra.Command {
 				base = "http://" + host
 			}
 			st.client = api.New(base, hostCfg.Token)
+			st.client.CookieName = hostCfg.CookieName
 			cmd.SetContext(context.WithValue(cmd.Context(), stateKey{}, st))
 			return nil
 		},

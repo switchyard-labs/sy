@@ -12,8 +12,9 @@ import (
 )
 
 type Host struct {
-	Token string `json:"token"`
-	User  string `json:"user,omitempty"`
+	Token      string `json:"token"`
+	CookieName string `json:"cookie_name,omitempty"`
+	User       string `json:"user,omitempty"`
 }
 
 type Config struct {

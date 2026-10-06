@@ -13,7 +13,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.SetHost("demo", Host{Token: "sess_x", User: "alice"})
+	c.SetHost("demo", Host{Token: "sess_x", CookieName: "__Host-switchyard_session", User: "alice"})
 	c.SetActive("demo")
 	if err := c.Save(); err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	h, _ := c2.Host()
-	if h == nil || h.Token != "sess_x" || h.User != "alice" {
+	if h == nil || h.Token != "sess_x" || h.User != "alice" || h.CookieName != "__Host-switchyard_session" {
 		t.Fatalf("round trip failed: %+v", c2)
 	}
 }

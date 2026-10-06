@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"time"
 )
 
@@ -15,8 +14,7 @@ import (
 // token. Switchyard uses cookie sessions (no PAT/device flow yet); see
 // docs/auth.md for the future PAT requirement.
 func (c *Client) Login(ctx context.Context, baseURL, username, password string) (string, error) {
-	jar, _ := cookiejar.New(nil)
-	hc := &http.Client{Jar: jar, Timeout: 30 * time.Second}
+	hc := &http.Client{Timeout: 30 * time.Second, Transport: c.http.Transport, CheckRedirect: func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}
 	body, _ := json.Marshal(map[string]string{"username": username, "password": password})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/auth/login", bytes.NewReader(body))
 	if err != nil {
@@ -33,17 +31,29 @@ func (c *Client) Login(ctx context.Context, baseURL, username, password string) 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", &HTTPError{Status: resp.StatusCode, Code: http.StatusText(resp.StatusCode)}
 	}
+
+	var session *http.Cookie
 	for _, ck := range resp.Cookies() {
-		if ck.Name == "switchyard_session" {
-			return ck.Value, nil
+		if ck.Name != "switchyard_session" && ck.Name != "__Host-switchyard_session" {
+			continue
 		}
-	}
-	// fallback: read from jar
-	for _, ck := range jar.Cookies(req.URL) {
-		if ck.Name == "switchyard_session" {
-			return ck.Value, nil
+		if session != nil {
+			return "", fmt.Errorf("login returned ambiguous session cookies")
 		}
+		if ck.Value == "" || ck.MaxAge < 0 {
+			return "", fmt.Errorf("login returned an empty session")
+		}
+		if ck.Name == "__Host-switchyard_session" && (req.URL.Scheme != "https" || !ck.Secure || ck.Path != "/" || ck.Domain != "") {
+			return "", fmt.Errorf("login returned invalid secure session cookie")
+		}
+		session = ck
 	}
+	if session != nil {
+		c.CookieName = session.Name
+		c.Token = session.Value
+		return session.Value, nil
+	}
+
 	return "", fmt.Errorf("login succeeded but no session cookie returned")
 }
 

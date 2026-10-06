@@ -71,10 +71,11 @@ func (e *HTTPError) Unwrap() error {
 }
 
 type Client struct {
-	BaseURL   string
-	Token     string // session cookie value (host token)
-	UserAgent string
-	http      *http.Client
+	BaseURL    string
+	Token      string // session cookie value (host token)
+	CookieName string // returned session name; empty legacy config follows URL scheme
+	UserAgent  string
+	http       *http.Client
 }
 
 func New(baseURL, token string) *Client {
@@ -191,13 +192,13 @@ func (c *Client) doOnce(ctx context.Context, method, path string, out any, opts 
 	if ro.Body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.Token != "" {
-		req.Header.Set("Cookie", "switchyard_session="+c.Token)
-	}
 	for k, vs := range ro.Header {
 		for _, v := range vs {
 			req.Header.Add(k, v)
 		}
+	}
+	if err := c.addSession(req); err != nil {
+		return err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -257,8 +258,8 @@ func (c *Client) DoRaw(ctx context.Context, method, path string, body string) ([
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.Token != "" {
-		req.Header.Set("Cookie", "switchyard_session="+c.Token)
+	if err := c.addSession(req); err != nil {
+		return nil, 0, err
 	}
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -267,4 +268,31 @@ func (c *Client) DoRaw(ctx context.Context, method, path string, body string) ([
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	return b, resp.StatusCode, nil
+}
+
+// addSession never transfers host-profile credentials across origins or redirects.
+func (c *Client) addSession(req *http.Request) error {
+	base, err := url.Parse(c.BaseURL)
+	if err != nil || req.URL.Scheme != base.Scheme || req.URL.Host != base.Host || req.URL.User != nil {
+		return fmt.Errorf("request origin differs from configured host")
+	}
+	req.Header.Del("Cookie")
+	if c.Token == "" {
+		return nil
+	}
+	name := c.CookieName
+	if name == "" {
+		name = "switchyard_session"
+		if base.Scheme == "https" {
+			name = "__Host-switchyard_session"
+		}
+	}
+	if name != "switchyard_session" && name != "__Host-switchyard_session" {
+		return fmt.Errorf("unsupported session cookie; log in again")
+	}
+	if name == "__Host-switchyard_session" && base.Scheme != "https" {
+		return fmt.Errorf("secure session requires HTTPS; log in again")
+	}
+	req.AddCookie(&http.Cookie{Name: name, Value: c.Token})
+	return nil
 }

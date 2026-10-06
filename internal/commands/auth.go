@@ -79,7 +79,7 @@ func newAuthLoginCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfg.SetHost(key, config.Host{Token: token, User: username})
+			cfg.SetHost(key, config.Host{Token: token, CookieName: client.CookieName, User: username})
 			prev := cfg.SetActive(key)
 			if err := cfg.Save(); err != nil {
 				return err

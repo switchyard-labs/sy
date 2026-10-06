@@ -1,7 +1,8 @@
 # Repository context
 
-`sy` derives `owner/repo` from the current Git checkout's `origin` remote, so
-`cd repo && sy work list` works without repeating the repository name.
+`sy` derives `owner/repo` from the current Git checkout's `origin` remote, for commands that resolve repository context, such as `sy pr list`.
+`sy work list` remains account-wide; its current `--repo` flag does not
+actually narrow results. See the [command inventory](command-inventory.md).
 
 Supported remote shapes:
 

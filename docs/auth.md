@@ -2,19 +2,21 @@
 
 Switchyard currently exposes **cookie sessions** only (no durable personal
 access tokens / device flow yet). `sy` stores the session token per host in a
-0600 config file and sends it as the `switchyard_session` cookie.
+0600 config file and retains the session cookie returned by that host. HTTPS production and local
+HTTP development are supported; server-side Secure/host-only policy is preserved.
 
 ## Login
 
 ```sh
-sy auth login --host http://45.79.189.46
+sy auth login --host https://switchyard.cx
 ```
 
 Prompts for username and password (password read without echo). Prefer this
 over `--password` (which leaks into shell history). For scripts/agents:
 
 ```sh
-printf 'alice\npassword123\n' | sy auth login --host http://45.79.189.46 --password-stdin
+# Feed username then password from a secret manager, not a literal password.
+sy auth login --host https://switchyard.cx --password-stdin
 ```
 
 ## Status / switch / logout

@@ -27,15 +27,17 @@ go build -o sy ./cmd/sy
 
 ```sh
 # log in (prompts for password; never store it in shell history)
-sy auth login --host http://45.79.189.46
+sy auth login --host https://switchyard.cx
 
 # clone a repository (uses ordinary Git; token never lands in .git/config)
 sy repo clone demo-basic
 
-# from inside a Switchyard checkout, run commands without owner/repo
+# PR commands infer owner/repo from a Switchyard checkout
 cd demo-basic
-sy work list
 sy pr list
+
+# Work lists are account-wide
+sy work list
 
 # what needs you right now?
 sy attention
@@ -47,26 +49,15 @@ sy attention --json
 
 ## Commands
 
-```
-CORE
-  auth        Authenticate with a Switchyard host
-  repo        Work with repositories
-  work        Work items (issues/tasks)
-  pr          Pull requests
-  attention   Items requiring human direction
-
-AUTOMATION
-  workflow    Durable engineering workflows
-  agent       Agent roles and executions
-  queue       Integration Queue
-
-OTHER
-  org         Organizations
-  api         Make an authenticated API request (escape hatch)
-  version     Print version
+```text
+auth · repo · work · attempt · pr · proposal · queue · attention
+workflow · agent · actions · pages · release · org · api
+status · browse · config · version · help · completion
 ```
 
-Run `sy <command> --help` for examples. See:
+Read the [public CLI guide](https://docs.switchyard.cx/docs/cli.html) and
+[verified command inventory](docs/command-inventory.md).
+Run `sy <command> --help` for exact syntax. See:
 
 - [docs/auth.md](docs/auth.md) — authentication and host profiles
 - [docs/config.md](docs/config.md) — configuration
@@ -81,12 +72,15 @@ Run `sy <command> --help` for examples. See:
 | --- | --- |
 | 0 | success |
 | 1 | remote/operation failure |
-| 2 | invalid invocation/input |
+| 2 | reserved invalid-input code; currently not emitted by the mapper |
 | 3 | authentication/authorization |
 | 4 | conflict/stale state |
 | 5 | infrastructure/unavailable |
 
-`sy` never returns 0 when an API request failed.
+`sy` never returns 0 when an API request failed. Raw `sy api` non-2xx
+responses (including HTTP 401) return 1; typed API 401/403 errors return 3.
+Many invocation/input errors currently return 1. JSON exceptions and other
+implementation drift are recorded in the command inventory.
 
 ## Design notes
 
@@ -94,7 +88,7 @@ Run `sy <command> --help` for examples. See:
   credentials are supplied via a temporary `GIT_CONFIG_GLOBAL` file (never in
   argv, never in `.git/config`). See the credential-sanitization tests in
   `internal/gitutil`.
-- **Output**: every command produces a domain result rendered by a shared
+- **Output**: most typed commands produce a domain result rendered by a shared
   renderer (human table / stable JSON). `--json` is a public contract.
 - **Terminal**: color/spinners are TTY-only; `NO_COLOR`, `TERM=dumb`,
   `--no-color`, and `--json` force deterministic output.

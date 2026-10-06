@@ -6,9 +6,9 @@ Config follows XDG on Linux (`~/.config/switchyard/config.json` or
 ```json
 {
   "hosts": {
-    "45.79.189.46": { "token": "sess_...", "user": "alice" }
+    "https://switchyard.cx": { "token": "REDACTED", "user": "alice" }
   },
-  "active_host": "45.79.189.46"
+  "active_host": "https://switchyard.cx"
 }
 ```
 
@@ -16,5 +16,5 @@ Config follows XDG on Linux (`~/.config/switchyard/config.json` or
 - `sy auth switch <host>` changes the active host.
 - Tokens are never printed by normal commands.
 
-The demo host `http://45.79.189.46` is **not** hardcoded anywhere; it only
-appears in your own config after login.
+Host profiles are created by login; no production host is hardcoded.
+Use an explicit HTTPS URL for production. Local HTTP servers remain supported.
